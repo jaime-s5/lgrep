@@ -7,6 +7,12 @@ use std::{
 use clap::{Arg, ArgGroup, Command};
 use regex::Regex;
 
+// ANSI escape sequences for highlighting matches
+// Adds foreground Green Color with 32 and makes it bold with 1
+// The END_COLOR clears the formatting
+const START_COLOR: &str = "\x1b[32;1m";
+const END_COLOR: &str = "\x1b[0m";
+
 enum Operation {
     File { name: String },
     Recursive { path: String },
@@ -42,7 +48,6 @@ fn search_file(name: &str, text_match: &str, number_lines: usize) {
         }
     };
 
-    // TODO: Add color to match
     let mut prev_lines: Vec<LineDetails> = Vec::with_capacity(number_lines);
     let mut current_match = LineDetails::new();
     for (i, line) in reader.lines().enumerate() {
@@ -60,7 +65,16 @@ fn search_file(name: &str, text_match: &str, number_lines: usize) {
                 println!("{}-{}: {}", name, line_detail.number, line_detail.line);
             }
             prev_lines.clear();
-            println!("{}-{}: {}", name, i, line);
+
+            // In reverse order since inserting the escape characters
+            // displaces the string
+            let mut colored_line = line.clone();
+            for (index, _) in line.rmatch_indices(text_match) {
+                colored_line.insert_str(index + text_match.len(), END_COLOR);
+                colored_line.insert_str(index, START_COLOR);
+            }
+
+            println!("{}-{}:{}", name, i, colored_line);
             current_match.update_details(line, i);
 
             continue;
