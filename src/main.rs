@@ -1,34 +1,95 @@
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    process::exit,
+};
+
 use clap::{Arg, ArgGroup, Command};
+use regex::Regex;
 
 enum Operation {
     File { name: String },
     Recursive { path: String },
 }
 
-fn search_file(name: &str, text_match: &str) {
-    let text = "\
-    Lorem ipsum dolor sit amet, 
-    consectetur adipiscing elit, 
-    sed do eiusmod tempor incididunt 
-    ut labore et dolore magna aliqua. 
-    Ut enim ad minim veniam, quis nostrud 
-    exercitation ullamco laboris nisi ut
-    aliquip ex ea commodo consequat. 
-    Duis aute irure dolor in reprehenderit 
-    in voluptate velit esse cillum dolore 
-    eu fugiat nulla pariatur. Excepteur sint 
-    occaecat cupidatat non proident, sunt in 
-    culpa qui officia deserunt mollit anim 
-    id est laborum.";
+struct LineDetails {
+    line: String,
+    number: usize,
+}
 
-    for (i, line) in text.lines().enumerate() {
+impl LineDetails {
+    fn new() -> Self {
+        LineDetails {
+            line: String::new(),
+            number: 0,
+        }
+    }
+
+    fn update_details(&mut self, line: String, number: usize) {
+        self.line = line;
+        self.number = number;
+    }
+}
+
+/// Searchs string text_match in file and prints matches and
+/// number_lines lines before and after
+fn search_file(name: &str, text_match: &str, number_lines: usize) {
+    let reader = match File::open(name) {
+        Ok(file) => BufReader::new(file),
+        Err(error) => {
+            eprintln!("{}", error);
+            exit(1);
+        }
+    };
+
+    // TODO: Add color to match
+    let mut prev_lines: Vec<LineDetails> = Vec::with_capacity(number_lines);
+    let mut current_match = LineDetails::new();
+    for (i, line) in reader.lines().enumerate() {
+        let line = match line {
+            Ok(line) => line,
+            Err(error) => {
+                eprintln!("{}", error);
+                exit(1);
+            }
+        };
+
+        // If match, we print stored prev_lines and current
         if line.contains(text_match) {
-            println!("{}: {}", i, line);
+            for line_detail in &prev_lines {
+                println!("{}-{}: {}", name, line_detail.number, line_detail.line);
+            }
+            prev_lines.clear();
+            println!("{}-{}: {}", name, i, line);
+            current_match.update_details(line, i);
+
+            continue;
+        }
+
+        if number_lines == 0 {
+            continue;
+        }
+
+        // If line is between match and match + number_lines it gets printed
+        if !current_match.line.is_empty()
+            && i > current_match.number
+            && i <= current_match.number + number_lines
+        {
+            println!("{}-{}: {}", name, i, line);
+            continue;
+        }
+
+        // Store possible before lines with max number_lines size
+        prev_lines.push(LineDetails { line, number: i });
+        if prev_lines.len() > number_lines {
+            prev_lines.remove(0);
         }
     }
 }
 
+// TODO: Add tests
 fn main() {
+    let reg = Regex::new(r"^(\d{1,2}|[01][0-9][0-9]|2[0-4][0-9]|25[0-5])$").unwrap();
     let matches = Command::new("lgrep")
         .author("jaime-s5")
         .version("0.1")
@@ -41,6 +102,15 @@ fn main() {
                 .required(true)
                 .value_name("STRING")
                 .help("String to search for"),
+        )
+        .arg(
+            Arg::new("number")
+                .short('n')
+                .long("number")
+                .takes_value(true)
+                .value_name("NUMBER")
+                .validator_regex(reg, "Only numbers between 0 and 255 are allowed")
+                .help("Number of lines to print before and after match"),
         )
         .group(
             ArgGroup::new("req_flags")
@@ -74,6 +144,12 @@ fn main() {
     // Required arg, so it will always yield Some
     let text_match = matches.value_of("string").unwrap();
 
+    // Regex already checks if arg value is a number in range [0, 255]
+    let number_lines = match matches.value_of("number") {
+        Some(arg) => arg.parse::<usize>().unwrap(),
+        None => 0,
+    };
+
     // Either the search is done in one single file or
     // recursively in the specified directory
     let operation = if matches.is_present("file") {
@@ -85,7 +161,8 @@ fn main() {
     };
 
     match operation {
-        Operation::File { name } => search_file(&name, text_match),
+        Operation::File { name } => search_file(&name, text_match, number_lines),
+        #[allow(unused_variables)]
         Operation::Recursive { path } => todo!(),
     }
 }
