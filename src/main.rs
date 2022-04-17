@@ -1,6 +1,7 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Error},
+    path::Path,
     process::exit,
 };
 
@@ -12,11 +13,6 @@ use regex::Regex;
 // The END_COLOR clears the formatting
 const START_COLOR: &str = "\x1b[32;1m";
 const END_COLOR: &str = "\x1b[0m";
-
-enum Operation {
-    File { name: String },
-    Recursive { path: String },
-}
 
 struct LineDetails {
     line: String,
@@ -44,7 +40,7 @@ fn search_file(name: &str, text_match: &str, number_lines: usize) {
         Ok(file) => BufReader::new(file),
         Err(error) => {
             eprintln!("{}", error);
-            exit(1);
+            return;
         }
     };
 
@@ -53,9 +49,11 @@ fn search_file(name: &str, text_match: &str, number_lines: usize) {
     for (i, line) in reader.lines().enumerate() {
         let line = match line {
             Ok(line) => line,
-            Err(error) => {
-                eprintln!("{}", error);
-                exit(1);
+            Err(_) => {
+                // if error, means no valid utf-8 to read, so we asume is a
+                // binary and return
+                eprintln!("{}:  binary file matches", name);
+                return;
             }
         };
 
@@ -74,7 +72,10 @@ fn search_file(name: &str, text_match: &str, number_lines: usize) {
                 colored_line.insert_str(index, START_COLOR);
             }
 
-            println!("{}-{}:{}", name, i, colored_line);
+            println!(
+                "{}{}-{}:{}{}",
+                START_COLOR, name, i, END_COLOR, colored_line
+            );
             current_match.update_details(line, i);
 
             continue;
@@ -99,6 +100,21 @@ fn search_file(name: &str, text_match: &str, number_lines: usize) {
             prev_lines.remove(0);
         }
     }
+}
+
+fn recursive_search(path: &Path, text_match: &str, number_lines: usize) -> Result<(), Error> {
+    for entry in path.read_dir()? {
+        let path = entry?.path();
+        if path.is_dir() {
+            recursive_search(&path, text_match, number_lines)?;
+        } else if path.is_file() {
+            if let Some(path_name) = path.to_str() {
+                search_file(path_name, text_match, number_lines);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // TODO: Add tests
@@ -166,17 +182,18 @@ fn main() {
 
     // Either the search is done in one single file or
     // recursively in the specified directory
-    let operation = if matches.is_present("file") {
-        let name = matches.value_of_t_or_exit("file");
-        Operation::File { name }
+    if matches.is_present("file") {
+        let name: String = matches.value_of_t_or_exit("file");
+        search_file(&name, text_match, number_lines);
     } else {
-        let path = matches.value_of_t_or_exit("recursive");
-        Operation::Recursive { path }
+        let path_name: String = matches.value_of_t_or_exit("recursive");
+        let path = Path::new(&path_name);
+        if !path.exists() || path.is_file() {
+            eprintln!("{}", "Specified path is not a valid directory.");
+            exit(1);
+        };
+        if let Err(err) = recursive_search(&path, text_match, number_lines) {
+            println!("An error ocurred: {}", err);
+        }
     };
-
-    match operation {
-        Operation::File { name } => search_file(&name, text_match, number_lines),
-        #[allow(unused_variables)]
-        Operation::Recursive { path } => todo!(),
-    }
 }
