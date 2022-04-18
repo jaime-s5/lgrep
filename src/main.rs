@@ -11,7 +11,8 @@ use regex::Regex;
 // ANSI escape sequences for highlighting matches
 // Adds foreground Green Color with 32 and makes it bold with 1
 // The END_COLOR clears the formatting
-const START_COLOR: &str = "\x1b[32;1m";
+const START_COLOR_BOLD: &str = "\x1b[91;1m";
+const START_COLOR: &str = "\x1b[32m";
 const END_COLOR: &str = "\x1b[0m";
 
 struct LineDetails {
@@ -69,7 +70,7 @@ fn search_file(name: &str, text_match: &str, number_lines: usize) {
             let mut colored_line = line.clone();
             for (index, _) in line.rmatch_indices(text_match) {
                 colored_line.insert_str(index + text_match.len(), END_COLOR);
-                colored_line.insert_str(index, START_COLOR);
+                colored_line.insert_str(index, START_COLOR_BOLD);
             }
 
             println!(
